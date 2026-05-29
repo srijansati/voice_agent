@@ -1,0 +1,5 @@
+livekit-agents[openai,silero,turn-detector]
+livekit
+python-dotenv
+torch
+torchaudio
