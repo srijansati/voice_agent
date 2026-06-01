@@ -416,7 +416,4 @@ if __name__ == "__main__":
         # Keep one idle process ready so sessions start without process-spawn
         # delay.  The idle process holds no GPU (prewarm only loads VAD).
         num_idle_processes=1,
-        # Only one active session at a time.  A second job request is queued
-        # by LiveKit until the current session ends and GPU memory is freed.
-        max_concurrent_jobs=1,
     ))
