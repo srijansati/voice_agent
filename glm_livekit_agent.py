@@ -280,17 +280,26 @@ async def stream_to_room(
 
 # ── LiveKit agent ─────────────────────────────────────────────────────────────
 def prewarm(proc) -> None:
-    """Load all models once when the worker process starts."""
-    proc.userdata["vad"]    = silero.VAD.load()
-    proc.userdata["models"] = GLMModels()
+    # Only load the tiny CPU-only VAD here.  GLMModels (~4 GB GPU) must NOT be
+    # loaded during prewarm: when a job is assigned the pool immediately spawns
+    # a refill process that also calls prewarm(), so two model copies would try
+    # to load simultaneously and OOM.  GPU models load inside entrypoint instead.
+    proc.userdata["vad"] = silero.VAD.load()
 
 
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
     logger.info("GLM agent connected → room: %s", ctx.room.name)
 
-    vad     = ctx.proc.userdata["vad"]
-    models  = ctx.proc.userdata["models"]
+    vad = ctx.proc.userdata["vad"]
+
+    # Load GPU models now, inside the job process.  max_concurrent_jobs=1
+    # ensures only one session runs at a time, so this never races with another
+    # entrypoint loading the same models.
+    logger.info("Loading GLM models for session …")
+    loop   = asyncio.get_running_loop()
+    models = await loop.run_in_executor(None, GLMModels)
+
     session = GLMSession(models)
 
     # ── Outgoing audio track (agent voice) ───────────────────────────────────
@@ -404,7 +413,10 @@ if __name__ == "__main__":
     cli.run_app(WorkerOptions(
         entrypoint_fnc=entrypoint,
         prewarm_fnc=prewarm,
-        # Default is 3, which would try to load 3 copies of the ~4 GB model
-        # simultaneously and immediately OOM. Keep exactly one warm process.
+        # Keep one idle process ready so sessions start without process-spawn
+        # delay.  The idle process holds no GPU (prewarm only loads VAD).
         num_idle_processes=1,
+        # Only one active session at a time.  A second job request is queued
+        # by LiveKit until the current session ends and GPU memory is freed.
+        max_concurrent_jobs=1,
     ))
