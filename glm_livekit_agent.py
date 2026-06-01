@@ -74,7 +74,8 @@ FRAME_MS = 10       # publish audio in 10 ms frames
 SYSTEM_PROMPT = (
     "User will provide you with a speech instruction. Do it step by step. "
     "First, think about the instruction and respond in a interleaved manner, "
-    "with 13 text token followed by 26 audio tokens."
+    "with 13 text token followed by 26 audio tokens. "
+    "Always respond in English."
 )
 
 # Audio token decode block sizes (matching web_demo.py)
@@ -279,6 +280,17 @@ async def stream_to_room(
 
 
 # ── LiveKit agent ─────────────────────────────────────────────────────────────
+async def _set_agent_state(room: rtc.Room, state: str) -> None:
+    """Set the lk.agent.state participant attribute so the frontend's
+    useAgent() hook can track initializing → listening → thinking → speaking.
+    Without this the hook times out and shows 'agent initialization failed'."""
+    try:
+        await room.local_participant.set_attributes({"lk.agent.state": state})
+        logger.debug("Agent state → %s", state)
+    except Exception as exc:
+        logger.debug("set_attributes unsupported, skipping state update: %s", exc)
+
+
 def prewarm(proc) -> None:
     # Only load the tiny CPU-only VAD here.  GLMModels (~4 GB GPU) must NOT be
     # loaded during prewarm: when a job is assigned the pool immediately spawns
@@ -290,12 +302,10 @@ def prewarm(proc) -> None:
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
     logger.info("GLM agent connected → room: %s", ctx.room.name)
+    await _set_agent_state(ctx.room, "initializing")
 
     vad = ctx.proc.userdata["vad"]
 
-    # Load GPU models now, inside the job process.  max_concurrent_jobs=1
-    # ensures only one session runs at a time, so this never races with another
-    # entrypoint loading the same models.
     logger.info("Loading GLM models for session …")
     loop   = asyncio.get_running_loop()
     models = await loop.run_in_executor(None, GLMModels)
@@ -310,6 +320,7 @@ async def entrypoint(ctx: JobContext) -> None:
         rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE),
     )
     logger.info("Agent audio track published")
+    await _set_agent_state(ctx.room, "listening")
 
     # One lock so we never run two GLM inferences concurrently
     inference_lock = asyncio.Lock()
@@ -372,6 +383,8 @@ async def entrypoint(ctx: JobContext) -> None:
                     len(raw) / SR_IN,
                 )
 
+                await _set_agent_state(ctx.room, "thinking")
+
                 # GLM generation runs in a daemon thread; audio chunks flow
                 # back via an asyncio.Queue so we can push them without blocking.
                 out_q: asyncio.Queue[np.ndarray | None] = asyncio.Queue()
@@ -382,13 +395,18 @@ async def entrypoint(ctx: JobContext) -> None:
                 )
                 t.start()
 
+                first_chunk = True
                 while True:
                     chunk = await out_q.get()
                     if chunk is None:
                         break
+                    if first_chunk:
+                        await _set_agent_state(ctx.room, "speaking")
+                        first_chunk = False
                     await stream_to_room(out_src, chunk)
 
                 t.join()
+                await _set_agent_state(ctx.room, "listening")
                 logger.info("Turn complete")
 
         await asyncio.gather(_push_to_vad(), _vad_loop())
