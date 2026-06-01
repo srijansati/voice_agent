@@ -103,6 +103,7 @@ class GLMModels:
             hift_ckpt_path=HIFT_CKPT,
             device=DEVICE,
         )
+        torch.cuda.empty_cache()
         logger.info("GLMModels ready ✓")
 
 
@@ -400,4 +401,10 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm))
+    cli.run_app(WorkerOptions(
+        entrypoint_fnc=entrypoint,
+        prewarm_fnc=prewarm,
+        # Default is 3, which would try to load 3 copies of the ~4 GB model
+        # simultaneously and immediately OOM. Keep exactly one warm process.
+        num_idle_processes=1,
+    ))
