@@ -1,7 +1,7 @@
 absl-py==2.4.0
 accelerate==0.31.0
 addict==2.4.0
-aiofiles<24
+aiofiles==25.1.0
 aiohappyeyeballs==2.6.2
 aiohttp==3.13.5
 aiosignal==1.4.0
