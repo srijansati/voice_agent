@@ -31,6 +31,7 @@ import os
 import sys
 import threading
 import uuid
+import time
 
 import numpy as np
 import requests
@@ -52,10 +53,11 @@ sys.path.insert(0, os.path.join(_ROOT, "third_party", "Matcha-TTS"))
 from flow_inference import AudioDecoder  # noqa: E402 (path must be inserted first)
 from speech_tokenizer.modeling_whisper import WhisperVQEncoder  # noqa: E402
 from speech_tokenizer.utils import extract_speech_token  # noqa: E402
+from logger import get_logger
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("glm-livekit")
+
+logger = get_logger("glm-livekit")
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 MODEL_PATH       = os.path.join(_ROOT, "glm-4-voice-9b-int4")
@@ -359,6 +361,9 @@ async def entrypoint(ctx: JobContext) -> None:
 
         async def _respond(frames: list[rtc.AudioFrame]) -> None:
             """Full GLM pipeline for one user turn, serialized by inference_lock."""
+            # 1. Start the master clock the exact moment VAD detects End-Of-Speech
+            turn_start_time = time.perf_counter()
+
             async with inference_lock:
                 loop = asyncio.get_running_loop()
 
@@ -392,6 +397,10 @@ async def entrypoint(ctx: JobContext) -> None:
                 # GLM generation runs in a daemon thread; audio chunks flow
                 # back via an asyncio.Queue so we can push them without blocking.
                 out_q: asyncio.Queue[np.ndarray | None] = asyncio.Queue()
+
+                # 2. Start the LLM-specific clock right before the thread begins
+                llm_start_time = time.perf_counter()
+
                 t = threading.Thread(
                     target=session.run_generation,
                     args=(prompt, out_q, loop),
@@ -405,13 +414,26 @@ async def entrypoint(ctx: JobContext) -> None:
                     if chunk is None:
                         break
                     if first_chunk:
+                        # 3. Calculate TTFB and End-to-End Latency on the very first audio frame
+                        first_chunk_time = time.perf_counter()
+                        llm_ttfb = first_chunk_time - llm_start_time
+                        e2e_latency = first_chunk_time - turn_start_time
+                        
+                        logger.info(f"⚡ Metrics - TTFB: {llm_ttfb:.3f}s | End-to-End Latency: {e2e_latency:.3f}s")
+
                         await _set_agent_state(ctx.room, "speaking")
                         first_chunk = False
                     await stream_to_room(out_src, chunk)
 
                 t.join()
+
+                # 4. Calculate total generation time when the thread closes
+                turn_end_time = time.perf_counter()
+                total_gen_time = turn_end_time - llm_start_time
+
                 await _set_agent_state(ctx.room, "listening")
-                logger.info("Turn complete")
+
+                logger.info(f"Turn complete. Total LLM+Audio generation time: {total_gen_time:.3f}s")
 
                 # ADD THIS: Flush all TTS context memory from the finished turn
                 torch.cuda.empty_cache()
