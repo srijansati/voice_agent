@@ -109,6 +109,7 @@ dependencies:
   - xz=5.8.2=h448239c_0
   - zlib=1.3.1=h47b2149_1
   - zstd=1.5.7=hb78ec9c_6
+  - setuptools<82
   - pip:
       - absl-py==2.4.0
       - accelerate==0.31.0
