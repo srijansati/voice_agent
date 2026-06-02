@@ -44,27 +44,33 @@ from livekit import agents, rtc
 from livekit.agents import JobContext, WorkerOptions, cli
 from livekit.agents.vad import VADEventType
 from livekit.plugins import silero
+from logger import get_logger
 
 # cosyvoice and Matcha-TTS live alongside this file
 _ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(_ROOT, "cosyvoice"))
-sys.path.insert(0, os.path.join(_ROOT, "third_party", "Matcha-TTS"))
 
-from flow_inference import AudioDecoder  # noqa: E402 (path must be inserted first)
+# Point to the directory that CONTAINS cosyvoice, flow_inference, and speech_tokenizer
+GLM_SOURCE_DIR = os.path.join(_ROOT, "glm_4_voice_9b_int4")
+
+# Insert the parent directory so 'import cosyvoice...' works perfectly for hyperpyyaml
+sys.path.insert(0, GLM_SOURCE_DIR)
+sys.path.insert(0, os.path.join(GLM_SOURCE_DIR, "third_party", "Matcha-TTS"))
+
+from flow_inference import AudioDecoder  # noqa: E402
 from speech_tokenizer.modeling_whisper import WhisperVQEncoder  # noqa: E402
 from speech_tokenizer.utils import extract_speech_token  # noqa: E402
-from logger import get_logger
+
 
 load_dotenv()
 
 logger = get_logger("glm-livekit")
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-MODEL_PATH       = os.path.join(_ROOT, "glm-4-voice-9b-int4")
-TOKENIZER_PATH   = os.path.join(_ROOT, "glm-4-voice-tokenizer")
-FLOW_CONFIG      = os.path.join(_ROOT, "glm-4-voice-decoder", "config.yaml")
-FLOW_CKPT        = os.path.join(_ROOT, "glm-4-voice-decoder", "flow.pt")
-HIFT_CKPT        = os.path.join(_ROOT, "glm-4-voice-decoder", "hift.pt")
+MODEL_PATH       = os.path.join(_ROOT, "glm_4_voice_9b_int4", "glm-4-voice-9b-int4")
+TOKENIZER_PATH   = os.path.join(_ROOT, "glm_4_voice_9b_int4", "glm-4-voice-tokenizer")
+FLOW_CONFIG      = os.path.join(_ROOT, "glm_4_voice_9b_int4", "glm-4-voice-decoder", "config.yaml")
+FLOW_CKPT        = os.path.join(_ROOT, "glm_4_voice_9b_int4", "glm-4-voice-decoder", "flow.pt")
+HIFT_CKPT        = os.path.join(_ROOT, "glm_4_voice_9b_int4", "glm-4-voice-decoder", "hift.pt")
 MODEL_SERVER_URL = "http://localhost:10000/generate_stream"
 DEVICE           = "cuda"
 
