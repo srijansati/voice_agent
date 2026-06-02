@@ -372,6 +372,10 @@ async def entrypoint(ctx: JobContext) -> None:
                 speech_str: str = await loop.run_in_executor(
                     None, session.encode_audio, waveform, SR_IN
                 )
+
+                # ADD THIS: Flush WhisperVQ activation memory before TTS starts
+                torch.cuda.empty_cache()
+                
                 if not speech_str:
                     logger.warning("No speech tokens extracted — skipping turn")
                     return
@@ -408,6 +412,9 @@ async def entrypoint(ctx: JobContext) -> None:
                 t.join()
                 await _set_agent_state(ctx.room, "listening")
                 logger.info("Turn complete")
+
+                # ADD THIS: Flush all TTS context memory from the finished turn
+                torch.cuda.empty_cache()
 
         await asyncio.gather(_push_to_vad(), _vad_loop())
 
