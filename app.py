@@ -40,18 +40,24 @@ async def entrypoint(ctx: JobContext):
     # PATH A: OpenAI Realtime API — single model hop, lowest latency (~300-500ms)
     # Uncomment this block and comment out PATH B to use it.
     # -------------------------------------------------------------------------
-    # realtime_model = openai.realtime.RealtimeModel()
-    # session = AgentSession(
-    #     vad=ctx.proc.userdata["vad"],
-    #     llm=realtime_model,
-    # )
-    # await session.start(
-    #     room=ctx.room,
-    #     agent=WifiTroubleshootingAgent(),
-    #     room_options=room_io.RoomOptions(
-    #         audio_input=room_io.AudioInputOptions(),
-    #     ),
-    # )
+    realtime_model = openai.realtime.RealtimeModel(
+        model= "Qwen/Qwen3-Omni-30B-A3B-Instruct",
+        base_url= "ws://localhost:8091/v1/realtime",
+        api_key="vllm-local-key",
+        modalities=["audio", "text"],
+    )
+
+    session = AgentSession(
+        vad=ctx.proc.userdata["vad"],
+        llm=realtime_model,
+    )
+    await session.start(
+        room=ctx.room,
+        agent=WifiTroubleshootingAgent(),
+        room_options=room_io.RoomOptions(
+            audio_input=room_io.AudioInputOptions(),
+        ),
+    )
 
     # -------------------------------------------------------------------------
     # PATH B: Optimized STT→LLM→TTS pipeline (~400-700ms)
